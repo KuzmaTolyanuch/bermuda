@@ -234,6 +234,10 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
         # any there for us to track.
         self._do_private_device_init = True
 
+        # First time go through the FindMy integration to see if there's
+        # any rolling-address accessories for us to track.
+        self._do_findmy_device_init = True
+
         # Listen for changes to the device registry and handle them.
         # Primarily for changes to scanners and Private BLE Devices.
         self.config_entry.async_on_unload(
@@ -465,6 +469,9 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
                                         _device.make_name()
                                 except KeyError:
                                     pass
+                            elif ident_type == DOMAIN_FINDMY:
+                                _LOGGER.debug("Trigger updating of FindMy Devices")
+                                self._do_findmy_device_init = True
                         # might be a scanner, so let's refresh those
                         _LOGGER.debug("Trigger updating of Scanner Listings")
                         self._scanner_init_pending = True
@@ -490,6 +497,10 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
                 # rescan PBLE devices. But right now we don't, so scan 'em anyway.
                 _LOGGER.debug("Opportunistic trigger of update for Private BLE Devices")
                 self._do_private_device_init = True
+                # Same reasoning applies to FindMy rolling-address devices: we
+                # don't currently stash their device_id, so scan opportunistically.
+                _LOGGER.debug("Opportunistic trigger of update for FindMy Devices")
+                self._do_findmy_device_init = True
         # The co-ordinator will only get updates if we have created entities already.
         # Since this might not always be the case (say, private_ble_device loads after
         # we do), then we trigger an update here with the expectation that we got a
@@ -1038,7 +1049,18 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
                             )
 
     def discover_findmy_metadevices(self) -> None:
-        """Create stable metadevices for locally matched rolling Find My tags."""
+        """
+        Create stable metadevices for locally matched rolling Find My tags.
+
+        Mirrors discover_private_ble_metadevices: only performs the (relatively
+        expensive) full discovery pass when the device registry has told us
+        something FindMy-related changed, via self._do_findmy_device_init.
+        """
+        if not self._do_findmy_device_init:
+            return
+        self._do_findmy_device_init = False
+        _LOGGER.debug("Refreshing Find My device list")
+
         findmy_entries = self.hass.config_entries.async_entries(DOMAIN_FINDMY, include_disabled=False)
         current_time = now()
 
@@ -1171,6 +1193,7 @@ class BermudaDataUpdateCoordinator(DataUpdateCoordinator):
         # FIXME: Can we delete this? pble's should create at realtime as they
         # are detected now.
         self.discover_private_ble_metadevices()
+        # Same lazy-init pattern, gated on self._do_findmy_device_init.
         self.discover_findmy_metadevices()
 
         # iBeacon devices should already have their metadevices created, so nothing more to

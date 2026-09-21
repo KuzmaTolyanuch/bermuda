@@ -90,6 +90,7 @@ def test_discover_findmy_metadevice_uses_only_fresh_local_addresses():
     source_device = SimpleNamespace(metadevice_type=set())
 
     coordinator = SimpleNamespace(
+        _do_findmy_device_init=True,
         hass=SimpleNamespace(
             config_entries=SimpleNamespace(async_entries=lambda *args, **kwargs: [findmy_entry]),
             states=SimpleNamespace(get=lambda entity_id: findmy_state),
@@ -110,6 +111,8 @@ def test_discover_findmy_metadevice_uses_only_fresh_local_addresses():
     assert metadevice.create_sensor is True
     assert metadevice.metadevice_sources == ["c1:22:33:44:55:66"]
     assert coordinator.metadevices == {"findmy_airtag-id": metadevice}
+    # The flag is consumed after a run, mirroring _do_private_device_init.
+    assert coordinator._do_findmy_device_init is False
 
     findmy_state.attributes = {
         "mac_address": "D1:22:33:44:55:66",
@@ -117,7 +120,23 @@ def test_discover_findmy_metadevice_uses_only_fresh_local_addresses():
     }
     BermudaDataUpdateCoordinator.discover_findmy_metadevices(coordinator)
 
+    # Flag wasn't re-armed, so this call is a no-op regardless of the new state.
     assert metadevice.metadevice_sources == ["c1:22:33:44:55:66"]
+
+
+def test_discover_findmy_metadevices_skips_when_not_flagged():
+    """discover_findmy_metadevices must be a no-op unless _do_findmy_device_init is set."""
+    calls = []
+    coordinator = SimpleNamespace(
+        _do_findmy_device_init=False,
+        hass=SimpleNamespace(
+            config_entries=SimpleNamespace(async_entries=lambda *args, **kwargs: calls.append("called")),
+        ),
+    )
+
+    BermudaDataUpdateCoordinator.discover_findmy_metadevices(coordinator)
+
+    assert calls == []
 
 
 def test_findmy_metadevice_links_to_findmy_device_registry_identifier():
